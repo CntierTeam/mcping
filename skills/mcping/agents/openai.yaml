@@ -1,0 +1,5 @@
+display_name: mcping
+short_description: Minecraft Java/Bedrock ping CLI — SLP + RakNet
+default_prompt: >-
+  Follow the mcping skill. Prefer the mcping binary for Java SLP and Bedrock
+  RakNet pings; respect auto/java/bedrock modes and keep sync I/O.

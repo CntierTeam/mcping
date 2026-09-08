@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to create/attach (e.g. v0.1.0). Required for workflow_dispatch."
+        required: true
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Build Linux + .deb
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux
+
+      - name: Build Linux binary
+        run: cargo build --release --locked
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb --no-build --output dist/
+
+      - name: Stage Linux assets
+        run: |
+          mkdir -p dist
+          cp target/release/mcping dist/mcping-x86_64-unknown-linux-gnu
+          chmod +x dist/mcping-x86_64-unknown-linux-gnu
+          DEB="$(find dist -maxdepth 1 -name '*.deb' -type f | head -1)"
+          test -n "$DEB"
+          cp -f "$DEB" dist/mcping_amd64.deb
+          (cd dist && sha256sum mcping-x86_64-unknown-linux-gnu mcping_amd64.deb \
+            > checksums-linux.sha256)
+          ls -lh dist/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/mcping-x86_64-unknown-linux-gnu
+            dist/mcping_amd64.deb
+            dist/checksums-linux.sha256
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows-msvc
+
+      - name: Build Windows binary
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Stage Windows assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/x86_64-pc-windows-msvc/release/mcping.exe" `
+            "dist/mcping-x86_64-pc-windows-msvc.exe"
+          Get-FileHash "dist/mcping-x86_64-pc-windows-msvc.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  mcping-x86_64-pc-windows-msvc.exe" } |
+            Set-Content -NoNewline "dist/checksums-windows.sha256"
+          Get-ChildItem dist
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/mcping-x86_64-pc-windows-msvc.exe
+            dist/checksums-windows.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            echo "error: push a v* tag or pass workflow_dispatch.tag" >&2
+            exit 1
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) TAG="v$TAG" ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download all assets
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten assets
+        run: |
+          mkdir -p dist
+          find artifacts -type f -print
+          find artifacts -type f -exec cp -v {} dist/ \;
+          cat dist/checksums-*.sha256 > dist/SHA256SUMS
+          ls -lh dist/
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: mcping ${{ steps.tag.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/mcping-x86_64-unknown-linux-gnu
+            dist/mcping-x86_64-pc-windows-msvc.exe
+            dist/mcping_amd64.deb
+            dist/SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
