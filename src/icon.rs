@@ -1,13 +1,15 @@
 //! Render a Java favicon PNG as colored half-block ASCII art.
 
+use base64::Engine;
 use image::imageops::FilterType;
 use image::RgbaImage;
 
 const DEFAULT_SIZE: u32 = 32;
+const DATA_URL_PREFIX: &str = "data:image/png;base64,";
 
-/// Print favicon to stdout as ANSI half-block art (~32×32).
-pub fn print_ascii(png: &[u8]) {
-    match render(png, DEFAULT_SIZE) {
+/// Print favicon data-URL to stdout as ANSI half-block art (~32×32).
+pub fn print_ascii(data_url: &str) {
+    match decode_png(data_url).and_then(|png| render(&png, DEFAULT_SIZE)) {
         Ok(s) => print!("{s}"),
         Err(_) => {
             // Silent skip — favicon is optional eye candy.
@@ -15,12 +17,20 @@ pub fn print_ascii(png: &[u8]) {
     }
 }
 
-fn render(png: &[u8], size: u32) -> Result<String, image::ImageError> {
-    let img = image::load_from_memory(png)?;
+fn decode_png(data_url: &str) -> Result<Vec<u8>, ()> {
+    let b64 = data_url.strip_prefix(DATA_URL_PREFIX).ok_or(())?;
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|_| ())
+}
+
+fn render(png: &[u8], size: u32) -> Result<String, ()> {
+    let img = image::load_from_memory(png).map_err(|_| ())?;
+    // Nearest is plenty for 64→32 favicon downscale and cheaper than Triangle.
     let rgba: RgbaImage = img
-        .resize_exact(size, size, FilterType::Triangle)
+        .resize_exact(size, size, FilterType::Nearest)
         .to_rgba8();
-    let mut out = String::new();
+    let mut out = String::with_capacity((size as usize) * (size as usize) * 24);
     let h = rgba.height();
     let w = rgba.width();
     let mut y = 0;

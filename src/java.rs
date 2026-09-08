@@ -184,15 +184,10 @@ fn named_color_to_code(name: &str) -> Option<char> {
     })
 }
 
-fn decode_favicon(data_url: &str) -> Option<Vec<u8>> {
-    const PREFIX: &str = "data:image/png;base64,";
-    let b64 = data_url.strip_prefix(PREFIX)?;
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(b64).ok()
-}
-
 /// One Java SLP ping against `addr`. `handshake_host` is the hostname sent in Handshake.
-pub fn ping(handshake_host: &str, addr: SocketAddr) -> Result<PingResult> {
+///
+/// When `keep_favicon` is false, the favicon data-URL is dropped so later pings stay cheap.
+pub fn ping(handshake_host: &str, addr: SocketAddr, keep_favicon: bool) -> Result<PingResult> {
     let mut stream = TcpStream::connect_timeout(&addr, TIMEOUT)
         .with_context(|| format!("TCP connect {addr}"))?;
     stream.set_read_timeout(Some(TIMEOUT))?;
@@ -249,7 +244,12 @@ pub fn ping(handshake_host: &str, addr: SocketAddr) -> Result<PingResult> {
     let players_online = status.players.as_ref().and_then(|p| p.online);
     let players_max = status.players.as_ref().and_then(|p| p.max);
     let motd = extract_motd(&status.description);
-    let favicon = status.favicon.as_deref().and_then(decode_favicon);
+    // Keep the data-URL as-is; base64/PNG work happens only when --show renders the icon.
+    let favicon = if keep_favicon {
+        status.favicon.filter(|s| s.starts_with("data:image/png;base64,"))
+    } else {
+        None
+    };
 
     Ok(PingResult {
         edition: crate::Edition::Java,

@@ -26,18 +26,21 @@ pub fn resolve_a(host: &str, port: u16) -> Result<Vec<SocketAddr>> {
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
+    // Prefer the system resolver — standing up hickory for every A/AAAA lookup is slower
+    // and can stall on broken AAAA paths. Hickory remains for Java SRV below.
+    let sys: Vec<SocketAddr> = (host, port)
+        .to_socket_addrs()
+        .with_context(|| format!("resolve {host}:{port}"))?
+        .collect();
+    if !sys.is_empty() {
+        return Ok(sys);
+    }
+
     let mut addrs: Vec<SocketAddr> = Vec::new();
     if let Ok(resolver) = resolver() {
         if let Ok(response) = resolver.lookup_ip(host) {
             addrs.extend(response.iter().map(|ip| SocketAddr::new(ip, port)));
         }
-    }
-    if addrs.is_empty() {
-        // Fallback to system resolver (covers partial AAAA failures / odd local setups).
-        addrs = (host, port)
-            .to_socket_addrs()
-            .with_context(|| format!("resolve {host}:{port}"))?
-            .collect();
     }
     if addrs.is_empty() {
         bail!("no addresses for {host}");

@@ -6,6 +6,7 @@ mod motd;
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
+use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -37,7 +38,8 @@ pub struct PingResult {
     pub motd2: Option<String>,
     pub gamemode: Option<String>,
     pub edition_name: Option<String>,
-    pub favicon: Option<Vec<u8>>,
+    /// Java favicon as `data:image/png;base64,...` (undecoded until --show icon render).
+    pub favicon: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
@@ -152,17 +154,30 @@ struct ProbeOk {
     query_host: String,
 }
 
-fn try_java(host: &str, port: Option<u16>) -> Result<ProbeOk> {
+fn try_java(host: &str, port: Option<u16>, keep_favicon: bool) -> Result<ProbeOk> {
     let resolved = dns::resolve_java(host, port)?;
+    let preview = *resolved
+        .addrs
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("no Java addresses"))?;
+    print_header(host, preview, Edition::Java);
+    ping_java_addrs(&resolved, host, keep_favicon)
+}
+
+fn ping_java_addrs(
+    resolved: &dns::ResolvedHost,
+    query_host: &str,
+    keep_favicon: bool,
+) -> Result<ProbeOk> {
     let mut last_err = None;
     for addr in &resolved.addrs {
-        match java::ping(&resolved.host_for_handshake, *addr) {
+        match java::ping(&resolved.host_for_handshake, *addr, keep_favicon) {
             Ok(r) => {
                 return Ok(ProbeOk {
                     edition: Edition::Java,
                     result: r,
                     handshake_host: resolved.host_for_handshake.clone(),
-                    query_host: host.to_string(),
+                    query_host: query_host.to_string(),
                 });
             }
             Err(e) => last_err = Some(e),
@@ -173,6 +188,15 @@ fn try_java(host: &str, port: Option<u16>) -> Result<ProbeOk> {
 
 fn try_bedrock(host: &str, port: Option<u16>) -> Result<ProbeOk> {
     let resolved = dns::resolve_bedrock(host, port)?;
+    let preview = *resolved
+        .addrs
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("no Bedrock addresses"))?;
+    print_header(host, preview, Edition::Bedrock);
+    ping_bedrock_addrs(&resolved, host)
+}
+
+fn ping_bedrock_addrs(resolved: &dns::ResolvedHost, query_host: &str) -> Result<ProbeOk> {
     let mut last_err = None;
     for addr in &resolved.addrs {
         match bedrock::ping(*addr) {
@@ -180,8 +204,8 @@ fn try_bedrock(host: &str, port: Option<u16>) -> Result<ProbeOk> {
                 return Ok(ProbeOk {
                     edition: Edition::Bedrock,
                     result: r,
-                    handshake_host: host.to_string(),
-                    query_host: host.to_string(),
+                    handshake_host: query_host.to_string(),
+                    query_host: query_host.to_string(),
                 });
             }
             Err(e) => last_err = Some(e),
@@ -190,11 +214,11 @@ fn try_bedrock(host: &str, port: Option<u16>) -> Result<ProbeOk> {
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no Bedrock addresses")))
 }
 
-fn first_ping(mode: Mode, host: &str, port: Option<u16>) -> Result<ProbeOk> {
+fn first_ping(mode: Mode, host: &str, port: Option<u16>, keep_favicon: bool) -> Result<ProbeOk> {
     match mode {
-        Mode::Java => try_java(host, port),
+        Mode::Java => try_java(host, port, keep_favicon),
         Mode::Bedrock => try_bedrock(host, port),
-        Mode::Auto => match try_java(host, port) {
+        Mode::Auto => match try_java(host, port, keep_favicon) {
             Ok(r) => Ok(r),
             Err(java_err) => match try_bedrock(host, None) {
                 Ok(r) => Ok(r),
@@ -209,17 +233,29 @@ fn first_ping(mode: Mode, host: &str, port: Option<u16>) -> Result<ProbeOk> {
 fn ping_once(probe: &ProbeOk, port: Option<u16>) -> Result<PingResult> {
     let prefer_addr = probe.result.address;
     match probe.edition {
-        Edition::Java => match java::ping(&probe.handshake_host, prefer_addr) {
+        // Later pings never need favicon — --show caches from the first success.
+        Edition::Java => match java::ping(&probe.handshake_host, prefer_addr, false) {
             Ok(r) => Ok(r),
-            Err(_) => try_java(&probe.query_host, port.or(Some(prefer_addr.port())))
+            Err(_) => try_java_quiet(&probe.query_host, port.or(Some(prefer_addr.port())))
                 .map(|p| p.result),
         },
         Edition::Bedrock => match bedrock::ping(prefer_addr) {
             Ok(r) => Ok(r),
-            Err(_) => try_bedrock(&probe.query_host, port.or(Some(prefer_addr.port())))
+            Err(_) => try_bedrock_quiet(&probe.query_host, port.or(Some(prefer_addr.port())))
                 .map(|p| p.result),
         },
     }
+}
+
+/// Re-resolve + ping without reprinting the MCPING header (fallback path).
+fn try_java_quiet(host: &str, port: Option<u16>) -> Result<ProbeOk> {
+    let resolved = dns::resolve_java(host, port)?;
+    ping_java_addrs(&resolved, host, false)
+}
+
+fn try_bedrock_quiet(host: &str, port: Option<u16>) -> Result<ProbeOk> {
+    let resolved = dns::resolve_bedrock(host, port)?;
+    ping_bedrock_addrs(&resolved, host)
 }
 
 fn format_reply_line(seq: u32, r: &PingResult) -> String {
@@ -241,18 +277,32 @@ fn format_reply_line(seq: u32, r: &PingResult) -> String {
     line
 }
 
-fn print_show(r: &PingResult) {
+fn print_header(host: &str, addr: SocketAddr, edition: Edition) {
+    println!(
+        "MCPING {} ({}:{}) [{}]: Minecraft status",
+        host,
+        addr.ip(),
+        addr.port(),
+        edition
+    );
+    let _ = io::stdout().flush();
+}
+
+/// MOTD only — flush so the user sees it before favicon ASCII work.
+fn print_motd(r: &PingResult) {
     println!();
     println!("--- MOTD ---");
     println!("{}", motd::to_ansi(&r.motd));
     if let Some(ref m2) = r.motd2 {
         println!("{}", motd::to_ansi(m2));
     }
-    if let Some(ref fav) = r.favicon {
-        println!("--- ICON ---");
-        icon::print_ascii(fav);
-    }
-    println!();
+    let _ = io::stdout().flush();
+}
+
+fn print_icon(favicon_data_url: &str) {
+    println!("--- ICON ---");
+    icon::print_ascii(favicon_data_url);
+    let _ = io::stdout().flush();
 }
 
 fn mdev(samples: &[f64], avg: f64) -> f64 {
@@ -274,25 +324,25 @@ fn main() -> Result<()> {
 
     let target = parse_target(&cli.target)?;
     let mode = mode_from_cli(&cli, target.port);
+    let keep_favicon = cli.show;
+
+    // Show the target immediately so DNS/SRV does not look like a hung process.
+    println!("MCPING {}:", target.host);
+    let _ = io::stdout().flush();
 
     let wall_start = Instant::now();
-    let probe = first_ping(mode, &target.host, target.port)
+    let probe = first_ping(mode, &target.host, target.port, keep_favicon)
         .with_context(|| format!("ping {}", cli.target))?;
     let first = &probe.result;
     let prefer_addr = first.address;
     let effective_port = Some(prefer_addr.port());
 
-    println!(
-        "MCPING {} ({}:{}) [{}]: Minecraft status",
-        target.host,
-        prefer_addr.ip(),
-        prefer_addr.port(),
-        probe.edition
-    );
-
+    // Header already printed after DNS resolve (before TCP/UDP ping).
+    // Show MOTD immediately, then the first reply line, then ICON last.
+    let cached_favicon = first.favicon.clone();
     let mut shown = false;
     if cli.show {
-        print_show(first);
+        print_motd(first);
         shown = true;
     }
 
@@ -305,6 +355,14 @@ fn main() -> Result<()> {
     received += 1;
     rtts.push(first.latency_ms);
     println!("{}", format_reply_line(1, first));
+    let _ = io::stdout().flush();
+
+    if cli.show {
+        if let Some(ref fav) = cached_favicon {
+            print_icon(fav);
+        }
+        println!();
+    }
 
     for seq in 2..=cli.count {
         std::thread::sleep(Duration::from_secs(1));
@@ -314,10 +372,17 @@ fn main() -> Result<()> {
                 received += 1;
                 rtts.push(r.latency_ms);
                 if cli.show && !shown {
-                    print_show(&r);
+                    print_motd(&r);
                     shown = true;
+                    println!("{}", format_reply_line(seq, &r));
+                    let _ = io::stdout().flush();
+                    if let Some(ref fav) = r.favicon {
+                        print_icon(fav);
+                    }
+                    println!();
+                } else {
+                    println!("{}", format_reply_line(seq, &r));
                 }
-                println!("{}", format_reply_line(seq, &r));
             }
             Err(e) => {
                 println!("Request timeout for seq={seq} ({e})");
