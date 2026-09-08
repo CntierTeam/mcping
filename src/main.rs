@@ -288,8 +288,8 @@ fn print_header(host: &str, addr: SocketAddr, edition: Edition) {
     let _ = io::stdout().flush();
 }
 
-/// MOTD only — flush so the user sees it before favicon ASCII work.
-fn print_motd(r: &PingResult) {
+/// One `--show` block: MOTD then ICON (same status), flush MOTD before icon decode.
+fn print_show_block(r: &PingResult) {
     println!();
     println!("--- MOTD ---");
     println!("{}", motd::to_ansi(&r.motd));
@@ -297,12 +297,12 @@ fn print_motd(r: &PingResult) {
         println!("{}", motd::to_ansi(m2));
     }
     let _ = io::stdout().flush();
-}
-
-fn print_icon(favicon_data_url: &str) {
-    println!("--- ICON ---");
-    icon::print_ascii(favicon_data_url);
-    let _ = io::stdout().flush();
+    if let Some(ref fav) = r.favicon {
+        println!("--- ICON ---");
+        icon::print_ascii(fav);
+        let _ = io::stdout().flush();
+    }
+    println!();
 }
 
 fn mdev(samples: &[f64], avg: f64) -> f64 {
@@ -338,11 +338,10 @@ fn main() -> Result<()> {
     let effective_port = Some(prefer_addr.port());
 
     // Header already printed after DNS resolve (before TCP/UDP ping).
-    // Show MOTD immediately, then the first reply line, then ICON last.
-    let cached_favicon = first.favicon.clone();
+    // Keep MOTD+ICON as one show block tied to this ping, then the reply line.
     let mut shown = false;
     if cli.show {
-        print_motd(first);
+        print_show_block(first);
         shown = true;
     }
 
@@ -357,13 +356,6 @@ fn main() -> Result<()> {
     println!("{}", format_reply_line(1, first));
     let _ = io::stdout().flush();
 
-    if cli.show {
-        if let Some(ref fav) = cached_favicon {
-            print_icon(fav);
-        }
-        println!();
-    }
-
     for seq in 2..=cli.count {
         std::thread::sleep(Duration::from_secs(1));
         transmitted += 1;
@@ -372,17 +364,10 @@ fn main() -> Result<()> {
                 received += 1;
                 rtts.push(r.latency_ms);
                 if cli.show && !shown {
-                    print_motd(&r);
+                    print_show_block(&r);
                     shown = true;
-                    println!("{}", format_reply_line(seq, &r));
-                    let _ = io::stdout().flush();
-                    if let Some(ref fav) = r.favicon {
-                        print_icon(fav);
-                    }
-                    println!();
-                } else {
-                    println!("{}", format_reply_line(seq, &r));
                 }
+                println!("{}", format_reply_line(seq, &r));
             }
             Err(e) => {
                 println!("Request timeout for seq={seq} ({e})");

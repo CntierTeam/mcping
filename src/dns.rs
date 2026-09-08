@@ -5,43 +5,33 @@ use hickory_resolver::Resolver;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
-const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
+const SRV_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct ResolvedHost {
     pub host_for_handshake: String,
     pub addrs: Vec<SocketAddr>,
 }
 
-fn resolver() -> Result<Resolver> {
+/// Hickory is used **only** for `_minecraft._tcp` SRV. A/AAAA always go through the
+/// system resolver so we hit nscd / systemd-resolved / OS DNS cache.
+fn srv_resolver() -> Result<Resolver> {
     let mut opts = ResolverOpts::default();
-    opts.timeout = RESOLVE_TIMEOUT;
+    opts.timeout = SRV_TIMEOUT;
     opts.attempts = 2;
-    Resolver::new(ResolverConfig::default(), opts).context("create DNS resolver")
+    Resolver::new(ResolverConfig::default(), opts).context("create SRV resolver")
 }
 
-/// Resolve A/AAAA for `host` and attach `port`.
+/// Resolve A/AAAA for `host` and attach `port` via `getaddrinfo` (`ToSocketAddrs`).
 pub fn resolve_a(host: &str, port: u16) -> Result<Vec<SocketAddr>> {
     // Literal IP: skip DNS.
     if let Ok(ip) = host.parse::<IpAddr>() {
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
-    // Prefer the system resolver — standing up hickory for every A/AAAA lookup is slower
-    // and can stall on broken AAAA paths. Hickory remains for Java SRV below.
-    let sys: Vec<SocketAddr> = (host, port)
+    let addrs: Vec<SocketAddr> = (host, port)
         .to_socket_addrs()
         .with_context(|| format!("resolve {host}:{port}"))?
         .collect();
-    if !sys.is_empty() {
-        return Ok(sys);
-    }
-
-    let mut addrs: Vec<SocketAddr> = Vec::new();
-    if let Ok(resolver) = resolver() {
-        if let Ok(response) = resolver.lookup_ip(host) {
-            addrs.extend(response.iter().map(|ip| SocketAddr::new(ip, port)));
-        }
-    }
     if addrs.is_empty() {
         bail!("no addresses for {host}");
     }
@@ -58,10 +48,10 @@ pub fn resolve_java(host: &str, explicit_port: Option<u16>) -> Result<ResolvedHo
         });
     }
 
-    let resolver = resolver()?;
+    // SRV needs a real DNS query; hickory does that. Target A/AAAA still uses the OS.
     let srv_name = format!("_minecraft._tcp.{host}");
-    match resolver.srv_lookup(&srv_name) {
-        Ok(lookup) => {
+    if let Ok(resolver) = srv_resolver() {
+        if let Ok(lookup) = resolver.srv_lookup(&srv_name) {
             let mut records: Vec<&SRV> = lookup.iter().collect();
             records.sort_by_key(|r| (r.priority(), r.weight()));
             if let Some(srv) = records.first() {
@@ -74,10 +64,8 @@ pub fn resolve_java(host: &str, explicit_port: Option<u16>) -> Result<ResolvedHo
                 });
             }
         }
-        Err(_) => {
-            // No SRV is normal; fall through to A/AAAA:25565.
-        }
     }
+    // No SRV (or SRV lookup failed) is normal; fall through to A/AAAA:25565.
 
     let addrs = resolve_a(host, 25565)?;
     Ok(ResolvedHost {
