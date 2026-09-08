@@ -15,6 +15,8 @@ cargo build --release
 
 Binary: `target/release/mcping`
 
+Release profile (see `Cargo.toml`): `lto`, `codegen-units = 1`, `panic = "abort"`, `strip`, `opt-level = "s"` — keeps the CLI small without UPX.
+
 ### Release artifacts (local)
 
 ```bash

@@ -10,6 +10,7 @@ cd "$ROOT"
 mkdir -p dist
 
 echo "==> cargo build --release --locked"
+# Uses [profile.release]: lto, strip, panic=abort, opt-level=s
 cargo build --release --locked
 cp -f target/release/mcping dist/mcping-x86_64-unknown-linux-gnu
 chmod +x dist/mcping-x86_64-unknown-linux-gnu
