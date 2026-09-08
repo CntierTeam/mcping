@@ -27,7 +27,8 @@ fn decode_png(data_url: &str) -> Result<Vec<u8>, ()> {
 fn render(png_bytes: &[u8], size: u32) -> Result<String, ()> {
     let (w0, h0, rgba) = decode_rgba(png_bytes)?;
     let rgba = resize_nearest(&rgba, w0, h0, size, size);
-    let mut out = String::with_capacity((size as usize) * (size as usize) * 24);
+    // Per-cell SGR + reset is ~30–40 bytes; size for worst case.
+    let mut out = String::with_capacity((size as usize) * (size as usize) * 40);
     let h = size;
     let w = size;
     let mut y = 0;
@@ -41,9 +42,12 @@ fn render(png_bytes: &[u8], size: u32) -> Result<String, ()> {
             };
             out.push_str(&half_block(top, bottom));
         }
+        // End-of-row reset so a following cell/line never inherits fg/bg.
         out.push_str("\x1b[0m\n");
         y += 2;
     }
+    // Whole-icon reset before MOTD/reply/normal output.
+    out.push_str("\x1b[0m");
     Ok(out)
 }
 
@@ -107,13 +111,16 @@ fn pixel(rgba: &[u8], w: u32, x: u32, y: u32) -> [u8; 4] {
 }
 
 fn half_block(top: [u8; 4], bottom: [u8; 4]) -> String {
+    const RESET: &str = "\x1b[0m";
     let ta = top[3];
     let ba = bottom[3];
-    // Fully transparent pair → space
+    // Fully transparent pair → space (no open SGR to bleed into neighbors)
     if ta < 16 && ba < 16 {
         return " ".to_string();
     }
-    // Use ▀ with FG=top, BG=bottom
+    // Use ▀ with FG=top, BG=bottom. Always reset after the glyph so the next
+    // cell cannot inherit a dangling 24-bit fg/bg (especially bg after a ▀ that
+    // only sets fg for a transparent neighbor).
     let (tr, tg, tb) = if ta < 16 {
         (0u8, 0u8, 0u8)
     } else {
@@ -126,10 +133,10 @@ fn half_block(top: [u8; 4], bottom: [u8; 4]) -> String {
     };
     if ta < 16 {
         // only bottom visible: use ▄ with FG=bottom
-        return format!("\x1b[38;2;{br};{bg};{bb}m▄");
+        return format!("\x1b[38;2;{br};{bg};{bb}m▄{RESET}");
     }
     if ba < 16 {
-        return format!("\x1b[38;2;{tr};{tg};{tb}m▀");
+        return format!("\x1b[38;2;{tr};{tg};{tb}m▀{RESET}");
     }
-    format!("\x1b[38;2;{tr};{tg};{tb}m\x1b[48;2;{br};{bg};{bb}m▀")
+    format!("\x1b[38;2;{tr};{tg};{tb}m\x1b[48;2;{br};{bg};{bb}m▀{RESET}")
 }
