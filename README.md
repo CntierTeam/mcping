@@ -96,6 +96,8 @@ rtt min/avg/max/mdev = 20.1/22.8/25.0/1.7 ms
 
 ## Codex skill
 
+**操作员代跑 / execute-first**：用户说 ping 某服时，在 shell 直接跑 `mcping`，不是只拼命令。
+
 ```bash
 ./scripts/install-codex-skill.sh         # copy into ~/.codex/skills/mcping
 ./scripts/install-codex-skill.sh link    # symlink from this checkout

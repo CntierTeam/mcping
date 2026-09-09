@@ -1,5 +1,7 @@
 # mcping CLI reference (operator)
 
+Skill 为 execute-first 操作员代跑；本文件是 flags/输出备查，不是替代 shell 执行。
+
 ## Synopsis
 
 ```text

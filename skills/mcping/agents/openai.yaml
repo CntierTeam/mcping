@@ -1,6 +1,6 @@
-display_name: mcping
-short_description: Ping Minecraft Java/Bedrock servers with the mcping CLI
-default_prompt: >-
-  Follow the mcping usage skill. Prefer the installed mcping binary to ping
-  Java/Bedrock servers, check MOTD with --show, and respect -c / --java /
-  --bedrock / auto modes. Do not develop or release mcping unless asked.
+interface:
+  display_name: "mcping"
+  short_description: "代跑 mcping：Java/Bedrock 测活"
+  default_prompt: "按 $mcping 当操作员：用户要 ping Minecraft 服、看 MOTD/延迟/人数时，用 shell 直接跑 mcping（--show / -c / --java / --bedrock 按需），不要只拼命令或 SAMPLE。缺 host 再问一句然后继续跑。"
+policy:
+  allow_implicit_invocation: true

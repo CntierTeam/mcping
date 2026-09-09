@@ -1,57 +1,55 @@
 ---
 name: mcping
 description: >-
-  Use the mcping CLI to ping Minecraft Java/Bedrock servers, check MOTD, latency,
-  player counts, and favicon. Covers install from GitHub Releases, -c/--count,
-  -s/--show, --java/--bedrock, auto edition selection, and common examples.
+  Operate mcping CLI by running it for the user to ping Minecraft Java/Bedrock
+  servers, check MOTD, latency, player counts, and favicon. Covers install from
+  GitHub Releases, -c/--count, -s/--show, --java/--bedrock, auto edition
+  selection, and common examples. Prefer shell execution over pasting recipes.
   Trigger on: mcping, Minecraft MOTD ping, server list ping CLI, Bedrock ping,
   Java status, SLP, RakNet Unconnected Ping, favicon MOTD, mcping --show.
 license: MIT
 metadata:
-  short-description: Ping Minecraft servers with mcping
+  short-description: 代跑 mcping（Java/Bedrock 测活）
 ---
 
 # mcping
 
-Operator skill for the **mcping** CLI: ping Minecraft **Java** (TCP Server List
-Ping) and **Bedrock** (RakNet Unconnected Ping/Pong). Output style mirrors
-system `ping`.
+产品：**`mcping`** — Minecraft **Java**（TCP Server List Ping）/ **Bedrock**（RakNet Unconnected Ping）测活 CLI，输出风格像系统 `ping`。
 
-Binary: `mcping`. Repo / releases: https://github.com/CntierTeam/mcping
+你是 **操作员**：用户说 ping 某服 / 看 MOTD / 测延迟 → **自己在 shell 执行 `mcping`**，不要只拼命令给用户。
 
-## Hard rules
+本 skill 是 **execute-first**：代跑产品，不是开发协议实现。细节见 [references/cli.md](references/cli.md)。
 
-1. Prefer the **installed binary** (`mcping` on `PATH`) over re-implementing SLP/RakNet.
-2. This skill is for **using** mcping. Do **not** implement, refactor, or release
-   mcping unless the user explicitly asks to develop it.
-3. Default mode is **auto**: try Java (SRV / 25565), then Bedrock `19132`.
-   Explicit `19132`/`19133` prefers Bedrock; other explicit ports prefer Java.
-4. Do not invent protocol fields; trust what `mcping` prints (and `--show` MOTD).
-5. User-facing replies follow the user's language.
+Repo: https://github.com/CntierTeam/mcping
 
-## Install the binary
+## Agent 硬规则
 
-From [GitHub Releases](https://github.com/CntierTeam/mcping/releases) (pick latest):
+1. **执行优先**：能跑就跑。二进制：`mcping` 或 `~/.local/bin/mcping`；没有就先从 Releases 安装。
+2. **禁止**用「组装指令 / SAMPLE / YOUR_CLI / 长篇教程 / 自己手写 SLP」代替执行。短句说明 → 立刻跑 → 根据输出继续。
+3. 用户说「ping X」→ **马上** `mcping X`（要 MOTD 加 `--show`；要多次加 `-c`）。缺 host/port 或强制版本时只问缺的那一项，问完继续跑。
+4. 命令名永远 **`mcping`**，禁止 `SAMPLE` / `YOUR_CLI`。
+5. 默认 **auto** 选版本；不要发明协议字段，以 `mcping` 打印为准。
+6. Mock/自测无意义（无 mock 模式）；网络不可达就如实报告输出。
 
-```bash
-# Linux x86_64 — place on PATH
-curl -fsSL -o mcping \
-  https://github.com/CntierTeam/mcping/releases/latest/download/mcping-x86_64-unknown-linux-gnu
-chmod +x mcping
-sudo mv mcping /usr/local/bin/mcping   # or: mkdir -p ~/bin && mv mcping ~/bin/
-
-# Debian/Ubuntu amd64
-curl -fsSL -O https://github.com/CntierTeam/mcping/releases/latest/download/mcping_amd64.deb
-sudo dpkg -i mcping_amd64.deb
-
-# Windows: download mcping-x86_64-pc-windows-msvc.exe from the same Releases page
-```
-
-Verify:
+## 标准代跑流
 
 ```bash
-command -v mcping && mcping --help
+command -v mcping || ~/.local/bin/mcping --help
+mcping <TARGET>                 # 默认 -c 4，auto edition
+mcping --show <TARGET>          # 彩色 MOTD；Java 还有 favicon ASCII
+mcping -c 10 <TARGET>           # 更多采样
 ```
+
+## 意图 → 怎么跑
+
+| 用户意图 | 执行 |
+|----------|------|
+| ping / 测活 / 延迟 | `mcping <host>` |
+| 看 MOTD / favicon | `mcping --show <host>` |
+| 多打几次 | `mcping -c 10 <host>` |
+| 强制 Java | `mcping --java <host>` |
+| 强制 Bedrock | `mcping --bedrock <host>` |
+| 非默认端口 | `mcping host:25566` 或 `host:19132` |
 
 ## CLI map
 
@@ -61,42 +59,22 @@ mcping <TARGET> [-c COUNT] [-s|--show] [--java|--bedrock]
 
 | Flag | Meaning |
 |------|---------|
-| `TARGET` | `host`, `host:port`, IP, `[ipv6]:port` |
-| `-c, --count` | Ping count (default `4`) |
-| `-s, --show` | Colored MOTD; Java also renders favicon ASCII |
-| `--java` | Force Java SLP |
-| `--bedrock` | Force Bedrock RakNet |
+| `TARGET` | `host`、`host:port`、IP、`[ipv6]:port` |
+| `-c, --count` | 次数（默认 `4`） |
+| `-s, --show` | 彩色 MOTD；Java 另渲染 favicon ASCII |
+| `--java` | 强制 Java SLP |
+| `--bedrock` | 强制 Bedrock RakNet |
 
-`--java` and `--bedrock` conflict.
+`--java` 与 `--bedrock` 互斥。
 
-## Common examples
+## Auto edition
 
-```bash
-mcping cntier.club
-mcping --java --show cntier.club
-mcping -c 10 hypixel.net
-mcping --bedrock play.example.com
-mcping host:25566
-mcping host:19132
-```
+1. `--java` / `--bedrock` → 仅该版。
+2. 显式端口 `19132` / `19133` → 优先 Bedrock，再回退。
+3. 其它显式端口 → 优先 Java。
+4. 无端口 → Java（SRV `_minecraft._tcp` / 25565），再 Bedrock `19132`。
 
-| Goal | Command |
-|------|---------|
-| Quick reachability / RTT | `mcping <host>` |
-| Colored MOTD (+ Java favicon) | `mcping --show <host>` |
-| More samples | `mcping -c 10 <host>` |
-| Force Java | `mcping --java <host>` |
-| Force Bedrock | `mcping --bedrock <host>` |
-| Non-default port | `mcping host:25566` |
-
-## Auto edition selection
-
-1. `--java` / `--bedrock` → that edition only.
-2. Explicit port `19132` or `19133` → prefer Bedrock, then fall back.
-3. Explicit other port → prefer Java.
-4. No port → try Java (SRV `_minecraft._tcp` / 25565), then Bedrock `19132`.
-
-## Reading the output
+## 读输出（汇报给用户时）
 
 ```text
 MCPING <host> (<addr:port>) [java|bedrock]: Minecraft status
@@ -106,23 +84,19 @@ N packets transmitted, M received, P% packet loss, time Tms
 rtt min/avg/max/mdev = ...
 ```
 
-With `--show`, after the first success mcping also prints ANSI MOTD (and for Java,
-a half-block ASCII favicon). Summarize edition, version, players, RTT, and MOTD
-when reporting to the user.
+摘要：**edition、version、players、RTT/loss、MOTD**（若用了 `--show`）。
 
-## Typical agent workflow
+## Install（仅当本机没有 mcping）
 
-1. Ensure `mcping` is on `PATH` (install from Releases if missing).
-2. Confirm target host/port and whether to force `--java` / `--bedrock`.
-3. Run `mcping` (add `--show` for MOTD/favicon; `-c` for more samples).
-4. Report latency, loss, players/version, and MOTD if requested.
+从 [Releases](https://github.com/CntierTeam/mcping/releases) 取最新：
 
-## Developing mcping
+```bash
+curl -fsSL -o mcping \
+  https://github.com/CntierTeam/mcping/releases/latest/download/mcping-x86_64-unknown-linux-gnu
+chmod +x mcping
+mkdir -p ~/.local/bin && mv mcping ~/.local/bin/mcping
+# 或 deb：mcping_amd64.deb + dpkg -i
+command -v mcping && mcping --help
+```
 
-Only if the user asks to change the tool itself: see the repo `README.md`.
-Do not treat protocol/CI/release work as part of normal ping usage.
-
-## References
-
-- CLI details: [references/cli.md](references/cli.md)
-- Releases: https://github.com/CntierTeam/mcping/releases
+https://github.com/CntierTeam/mcping
