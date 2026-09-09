@@ -1,6 +1,6 @@
 [package]
 name = "mcping"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Minecraft Java/Bedrock server ping CLI (SLP + RakNet Unconnected Ping)"
 license = "MIT"

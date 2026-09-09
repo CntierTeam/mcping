@@ -1,4 +1,4 @@
-# mcping CLI reference
+# mcping CLI reference (operator)
 
 ## Synopsis
 
@@ -37,22 +37,14 @@ N packets transmitted, M received, P% packet loss, time Tms
 rtt min/avg/max/mdev = ...
 ```
 
-## Java SLP (high level)
+## What each edition reports
 
-1. Resolve host (optional SRV → A/AAAA).
-2. TCP connect → handshake (protocol version, host, port, next state=1).
-3. Status request → JSON status response (description, players, version, favicon).
-4. Ping packet with payload timestamp → pong → latency.
+| Edition | Default port | Useful fields in status lines |
+|---------|--------------|-------------------------------|
+| Java | 25565 (+ `_minecraft._tcp` SRV) | players, version; `--show` → MOTD + favicon |
+| Bedrock | 19132 | players, version/gamemode-ish MOTD fields; `--show` → MOTD |
 
-Framing: Minecraft VarInt length-prefixed packets.
-
-## Bedrock RakNet (high level)
-
-1. UDP send Unconnected Ping (magic + guid + timestamp).
-2. Receive Unconnected Pong; parse MOTD string after magic.
-3. MOTD fields are `;`-separated (edition, MOTD lines, protocol, version, players, gamemode, …).
-
-## Build artifacts
+## Install artifacts (Releases)
 
 | File | Platform |
 |------|----------|
@@ -60,10 +52,4 @@ Framing: Minecraft VarInt length-prefixed packets.
 | `mcping-x86_64-pc-windows-msvc.exe` | Windows MSVC x86_64 |
 | `mcping_amd64.deb` | Debian/Ubuntu amd64 |
 
-```bash
-cargo build --release
-cargo install cargo-deb && cargo deb --no-build
-./scripts/build-release.sh
-```
-
-Release CI: push tag `v*` → `.github/workflows/release.yml`.
+Download from https://github.com/CntierTeam/mcping/releases
